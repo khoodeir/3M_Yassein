@@ -157,9 +157,10 @@ td .v{min-width:0;overflow-wrap:anywhere}
 <div id="toast" class="hide"></div>
 
 <script>
-const SB_URL = "https://nxdskesytzuatasgdsoa.supabase.co/rest/v1/";
+const SB_BASE = "https://nxdskesytzuatasgdsoa.supabase.co";
+const SB_URL = SB_BASE + "/rest/v1/";
+const AUTH_EMAIL = "owner@bellakoko.app"; // نفس الإيميل اللي هتعمله في Supabase > Authentication > Users
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im54ZHNrZXN5dHp1YXRhc2dkc29hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4NTM3OTIsImV4cCI6MjEwMjQyOTc5Mn0.ZmaXVsTe7JxY1r8sfQZR0g0zdUwFn-Ov44uryDRN3VY";
-const DEFAULT_PASS = "2026";
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -195,22 +196,31 @@ function modal(h) { const b = $("#mbox"); b.innerHTML = h; labelTables(b); $("#m
 function closeM() { $("#modal").classList.add("hide"); document.body.style.overflow = ""; }
 $("#modal").onclick = e => { if (e.target.id === "modal") closeM(); };
 
-async function api(table, method = "GET", query = "", body) {
+let session = null;
+function authCall(path, method, body, token) {
+  return fetch(SB_BASE + "/auth/v1/" + path, {method, headers: {apikey: SB_KEY, "Content-Type": "application/json", ...(token ? {Authorization: "Bearer " + token} : {})}, body: body ? JSON.stringify(body) : undefined});
+}
+async function signIn(pw) {
+  const r = await authCall("token?grant_type=password", "POST", {email: AUTH_EMAIL, password: pw});
+  if (r.status === 400 || r.status === 401 || r.status === 422) return false;
+  if (!r.ok) throw new Error(await r.text());
+  session = await r.json(); return true;
+}
+async function refreshSession() {
+  const r = await authCall("token?grant_type=refresh_token", "POST", {refresh_token: session.refresh_token});
+  if (!r.ok) { logout(); throw new Error("session expired"); }
+  session = await r.json();
+}
+async function api(table, method = "GET", query = "", body, retry = true) {
+  if (session && session.expires_at - 60 < Date.now() / 1000) await refreshSession();
   const r = await fetch(SB_URL + table + query, {
     method,
-    headers: {apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json", Prefer: "return=representation"},
+    headers: {apikey: SB_KEY, Authorization: "Bearer " + (session ? session.access_token : SB_KEY), "Content-Type": "application/json", Prefer: "return=representation"},
     body: body ? JSON.stringify(body) : undefined
   });
+  if (r.status === 401 && session && retry) { await refreshSession(); return api(table, method, query, body, false); }
   if (!r.ok) { toast("تعذر الاتصال بقاعدة البيانات"); throw new Error(await r.text()); }
   return r.status === 204 ? null : r.json();
-}
-async function sha(s) {
-  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bellakoko:" + s));
-  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
-}
-async function storedHash() {
-  const r = await api("settings", "GET", "?key=eq.pass_hash&select=value");
-  return r.length ? r[0].value : await sha(DEFAULT_PASS);
 }
 
 // ===== الدخول والحماية =====
@@ -219,7 +229,7 @@ $("#loginForm").onsubmit = async e => {
   e.preventDefault();
   if (Date.now() < lockUntil) { $("#lerr").textContent = "استنى " + Math.ceil((lockUntil - Date.now()) / 1000) + " ثانية"; return; }
   try {
-    if (await sha($("#pw").value) === await storedHash()) { $("#pw").value = ""; start(); }
+    if (await signIn($("#pw").value)) { $("#pw").value = ""; start(); }
     else {
       fails++; $("#pw").value = "";
       if (fails >= 5) { lockUntil = Date.now() + 60000; fails = 0; $("#lerr").textContent = "تم القفل لمدة دقيقة"; }
@@ -228,7 +238,10 @@ $("#loginForm").onsubmit = async e => {
   } catch { $("#lerr").textContent = "تعذر الاتصال"; }
 };
 document.addEventListener("click", e => { const c = e.target.closest(".col[data-tip]"); if (c) toast(c.dataset.tip); });
-const logout = () => location.reload();
+const logout = () => {
+  if (session) fetch(SB_BASE + "/auth/v1/logout", {method: "POST", headers: {apikey: SB_KEY, Authorization: "Bearer " + session.access_token}, keepalive: true}).catch(() => {});
+  location.reload();
+};
 $("#out").onclick = logout;
 let idle; const bump = () => { clearTimeout(idle); idle = setTimeout(logout, 15 * 60 * 1000); };
 ["click", "keydown", "touchstart"].forEach(ev => addEventListener(ev, bump));
@@ -439,12 +452,13 @@ function settingsView() {
 }
 async function changePass() {
   const [a, b, c] = ["#p0", "#p1", "#p2"].map(s => $(s).value);
-  if (await sha(a) !== await storedHash()) return toast("كلمة السر الحالية غلط");
-  if (b.length < 4) return toast("كلمة السر قصيرة");
-  if (b !== c) return toast("غير متطابقتين");
-  const h = await sha(b), ex = await api("settings", "GET", "?key=eq.pass_hash&select=key");
-  if (ex.length) await api("settings", "PATCH", "?key=eq.pass_hash", {value: h});
-  else await api("settings", "POST", "", {key: "pass_hash", value: h});
+  try {
+    if (!(await signIn(a))) return toast("كلمة السر الحالية غلط");
+    if (b.length < 6) return toast("كلمة السر لازم تكون 6 أحرف أو أرقام على الأقل");
+    if (b !== c) return toast("غير متطابقتين");
+    const r = await authCall("user", "PUT", {password: b}, session.access_token);
+    if (!r.ok) return toast("تعذر تغيير كلمة السر");
+  } catch { return toast("تعذر الاتصال"); }
   ["#p0", "#p1", "#p2"].forEach(s => $(s).value = ""); toast("تم تغيير كلمة السر");
 }
 
