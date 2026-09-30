@@ -79,7 +79,7 @@ td .v{min-width:0;overflow-wrap:anywhere}
   input,select,textarea{font-size:16px!important}
   header{padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top));padding-right:calc(14px + env(safe-area-inset-right));padding-left:calc(14px + env(safe-area-inset-left))}
   .logo b{font-size:1rem}
-  nav{position:fixed;bottom:0;left:0;right:0;z-index:8;background:var(--k);border-top:3px solid var(--y);display:grid;grid-template-columns:repeat(5,1fr);gap:2px;padding:6px 6px calc(6px + env(safe-area-inset-bottom));flex-wrap:nowrap}
+  nav{position:fixed;bottom:0;left:0;right:0;z-index:8;background:var(--k);border-top:3px solid var(--y);display:grid;grid-template-columns:repeat(6,1fr);gap:2px;padding:6px 6px calc(6px + env(safe-area-inset-bottom));flex-wrap:nowrap}
   nav button{min-height:48px;padding:4px 2px;font-size:.74rem;line-height:1.25;border-radius:10px}
   main{padding:14px 12px calc(96px + env(safe-area-inset-bottom));padding-right:max(12px,env(safe-area-inset-right));padding-left:max(12px,env(safe-area-inset-left))}
   h2{font-size:1.1rem}
@@ -150,6 +150,7 @@ td .v{min-width:0;overflow-wrap:anywhere}
       <button data-t="dash" class="on">الداش بورد</button>
       <button data-t="clients">العملاء</button>
       <button data-t="workers">العمال والمرتبات</button>
+      <button data-t="expenses">المصروفات</button>
       <button data-t="settings">الإعدادات</button>
       <button id="out">خروج</button>
     </nav>
@@ -185,7 +186,7 @@ const curKey = p => {
 };
 const keyLabel = (k, p) => String(k || "").startsWith("x") ? "دفعة يدوية" : p === "month" ? k : p === "week" ? "أسبوع " + fdate(k) : fdate(k);
 
-let S = {clients: [], payments: [], workers: [], records: [], month: iso(new Date()).slice(0, 7), tab: "dash"};
+let S = {clients: [], payments: [], workers: [], records: [], expenses: [], month: iso(new Date()).slice(0, 7), tab: "dash"};
 
 function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.remove("hide"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add("hide"), 2500); }
 function labelTables(root) {
@@ -275,23 +276,25 @@ async function start() {
   catch { $("#view").innerHTML = `<div class="empty">تعذر تحميل البيانات. تحقق من الاتصال ثم أعد المحاولة.</div>`; }
 }
 async function load() {
-  const [c, p, w, r] = await Promise.all([
+  const [c, p, w, r, e] = await Promise.all([
     api("clients", "GET", "?select=*&order=created_at.desc"),
     api("payments", "GET", "?select=*&order=paid_at.desc"),
     api("workers", "GET", "?select=*&order=created_at.asc"),
-    api("salary_records", "GET", "?select=*&paid=eq.true&order=paid_at.desc")
+    api("salary_records", "GET", "?select=*&paid=eq.true&order=paid_at.desc"),
+    api("expenses", "GET", "?select=*&order=expense_date.desc,created_at.desc")
   ]);
-  Object.assign(S, {clients: c, payments: p, workers: w, records: r});
+  Object.assign(S, {clients: c, payments: p, workers: w, records: r, expenses: e});
 }
 const paidOf = id => sum(S.payments.filter(p => p.client_id === id).map(p => p.amount));
 const incOf = k => sum(S.payments.filter(p => dOf(p.paid_at).slice(0, 7) === k).map(p => p.amount));
 const salOf = k => sum(S.records.filter(r => dOf(r.paid_at).slice(0, 7) === k).map(r => r.amount));
+const expOf = k => sum(S.expenses.filter(e => String(e.expense_date || e.created_at || "").slice(0, 7) === k).map(e => e.amount));
 const monthPick = () => `<input type="month" value="${S.month}" onchange="S.month=this.value;render()" aria-label="الشهر">`;
 const refresh = async () => { await load(); render(); };
 
 function render() {
   const v = $("#view");
-  v.innerHTML = {dash, clients: clientsView, workers: workersView, settings: settingsView}[S.tab]();
+  v.innerHTML = {dash, clients: clientsView, workers: workersView, expenses: expensesView, settings: settingsView}[S.tab]();
   labelTables(v);
 }
 
@@ -299,22 +302,23 @@ function render() {
 function chart() {
   const ms = []; let [y, m] = S.month.split("-").map(Number);
   for (let i = 0; i < 6; i++) { ms.unshift(y + "-" + String(m).padStart(2, "0")); m--; if (!m) { m = 12; y--; } }
-  const data = ms.map(k => ({k, i: incOf(k), s: salOf(k)}));
-  const mx = Math.max(1, ...data.flatMap(d => [d.i, d.s]));
-  return `<div class="chart">${data.map(d => `<div class="col" data-tip="${d.k}: دخل ${money(d.i)} — مرتبات ${money(d.s)}"><div class="bars"><i style="height:${d.i / mx * 100}%" title="${money(d.i)}"></i><u style="height:${d.s / mx * 100}%" title="${money(d.s)}"></u></div><small>${d.k.slice(5)}/${d.k.slice(2, 4)}</small></div>`).join("")}</div>
-  <div class="lg"><i></i> دخل <u></u> مرتبات</div>`;
+  const data = ms.map(k => ({k, i: incOf(k), s: salOf(k), e: expOf(k)}));
+  const mx = Math.max(1, ...data.flatMap(d => [d.i, d.s, d.e]));
+  return `<div class="chart">${data.map(d => `<div class="col" data-tip="${d.k}: دخل ${money(d.i)} — مرتبات ${money(d.s)} — مصروفات ${money(d.e)}"><div class="bars"><i style="height:${d.i / mx * 100}%" title="${money(d.i)}"></i><u style="height:${d.s / mx * 100}%" title="${money(d.s)}"></u><b style="height:${d.e / mx * 100}%;display:block;flex:1;background:var(--bad);border-radius:4px 4px 0 0" title="${money(d.e)}"></b></div><small>${d.k.slice(5)}/${d.k.slice(2, 4)}</small></div>`).join("")}</div>
+  <div class="lg"><i></i> دخل <u></u> مرتبات <b style="display:inline-block;width:14px;height:14px;background:var(--bad);border-radius:3px;margin-right:10px"></b> مصروفات</div>`;
 }
 function dash() {
-  const inc = incOf(S.month), paidSal = salOf(S.month);
+  const inc = incOf(S.month), paidSal = salOf(S.month), expenses = expOf(S.month);
   const dueNow = sum(S.workers.filter(w => !S.records.some(r => r.worker_id === w.id && r.month === curKey(w.period))).map(w => +w.salary));
   const owed = sum(S.clients.map(c => Math.max(0, +c.total_cost - paidOf(c.id))));
-  const profit = inc - paidSal;
+  const profit = inc - paidSal - expenses;
   const last = S.payments.filter(p => p.paid_at.slice(0, 7) === S.month).slice(0, 8);
   return `<div class="bar"><h2 style="margin:0">الداش بورد</h2>${monthPick()}</div>
   <div class="stats">
     <div class="stat hero"><span>دخل الشهر</span><b>${money(inc)}</b></div>
     <div class="stat"><span>مرتبات مصروفة</span><b>${money(paidSal)}</b></div>
-    <div class="stat ${profit < 0 ? "neg" : "pos"}"><span>صافي الربح</span><b>${money(profit)}</b></div>
+    <div class="stat"><span>المصروفات</span><b class="rem">${money(expenses)}</b></div>
+    <div class="stat ${profit < 0 ? "neg" : "pos"}"><span>صافي الربح بعد المصروفات</span><b>${money(profit)}</b></div>
     <div class="stat"><span>مرتبات لسه</span><b>${money(dueNow)}</b></div>
     <div class="stat"><span>باقي عند العملاء</span><b>${money(owed)}</b></div>
     <div class="stat"><span>العملاء</span><b>${S.clients.length}</b></div>
@@ -458,6 +462,32 @@ async function delRec(rid, wid) {
 async function delWorker(id) {
   if (!confirm("حذف العامل وسجله؟")) return;
   await api("workers", "DELETE", "?id=eq." + id); closeM(); await refresh();
+}
+
+// ===== المصروفات =====
+function expensesView() {
+  const monthExpenses = S.expenses.filter(e => String(e.expense_date || e.created_at || "").slice(0, 7) === S.month);
+  return `<div class="bar"><h2 style="margin:0">المصروفات</h2>${monthPick()}</div>
+  <div class="form">
+    <input id="examount" type="number" min="0.01" step="0.01" placeholder="المبلغ">
+    <input id="exdesc" placeholder="المصروف ده خاص بإيه؟">
+    <input id="exdate" type="date" value="${today()}">
+    <button class="btn" onclick="addExpense()">تسجيل المصروف</button>
+  </div>
+  <div class="stats"><div class="stat"><span>إجمالي مصروفات الشهر</span><b class="rem">${money(sum(monthExpenses.map(e => e.amount)))}</b></div></div>
+  <div class="tbl">${monthExpenses.length ? `<table><tr><th>التاريخ</th><th>البيان</th><th>المبلغ</th><th></th></tr>${monthExpenses.map(e => `<tr><td>${fdate(e.expense_date)}</td><td>${esc(e.description)}</td><td class="rem">${money(e.amount)}</td><td><button class="btn sm del" onclick="delExpense('${e.id}')">حذف</button></td></tr>`).join("")}</table>` : `<div class="empty">لا توجد مصروفات في هذا الشهر</div>`}</div>`;
+}
+async function addExpense() {
+  const amount = safeAmount($("#examount").value), description = $("#exdesc").value.trim(), expense_date = $("#exdate").value || today();
+  if (!(amount > 0)) return toast("اكتب مبلغًا صحيحًا أكبر من صفر");
+  if (!description) return toast("اكتب المصروف ده خاص بإيه");
+  if (!validDate(expense_date)) return toast("اكتب تاريخًا صحيحًا");
+  await api("expenses", "POST", "", {amount, description, expense_date});
+  await refresh(); S.tab = "expenses"; render(); toast("تم تسجيل المصروف");
+}
+async function delExpense(id) {
+  if (!confirm("حذف المصروف؟")) return;
+  await api("expenses", "DELETE", "?id=eq." + id); await refresh(); S.tab = "expenses"; render();
 }
 
 // ===== الإعدادات =====
