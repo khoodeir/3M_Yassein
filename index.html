@@ -49,6 +49,23 @@ td{padding:10px;border-top:1px solid var(--line);vertical-align:middle}
 td input.q{width:64px;padding:5px;border:1.5px solid var(--k);border-radius:6px}
 .empty{padding:26px;text-align:center;color:var(--mut)}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--k);color:var(--y);padding:10px 20px;border-radius:10px;font-weight:600}
+
+.stat.pos b{color:var(--ok)}.stat.neg b{color:var(--bad)}
+.panel{background:var(--w);border:2px solid var(--k);border-radius:14px;padding:16px;margin-bottom:22px}
+.chart{display:flex;gap:12px;height:170px}.col{flex:1;display:flex;flex-direction:column;gap:6px;text-align:center}
+.bars{flex:1;display:flex;gap:4px;align-items:flex-end}
+.bars i,.bars u{flex:1;display:block;min-height:2px;border-radius:4px 4px 0 0}
+.bars i{background:var(--y);border:1.5px solid var(--k)}.bars u{background:var(--k)}
+.lg{margin-top:10px;font-size:.85rem;display:flex;gap:8px;align-items:center}
+.lg i,.lg u{display:inline-block;width:14px;height:14px;border-radius:3px}.lg i{background:var(--y);border:1.5px solid var(--k)}.lg u{background:var(--k);margin-right:10px}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:grid;place-items:start center;overflow:auto;padding:20px;z-index:9}
+#mbox{background:var(--bg);border:3px solid var(--y);border-radius:16px;padding:18px;width:min(720px,100%)}
+.mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.mh h2{margin:0}
+.x{background:var(--k);color:var(--y);border:0;width:34px;height:34px;border-radius:50%;cursor:pointer;font-weight:800}
+label{display:grid;gap:4px;font-weight:600;font-size:.9rem}label.full{grid-column:1/-1}
+label input,label select{font-weight:400}
+.b input,.bar input{min-width:0}
+@media(max-width:600px){main{padding:12px}.stat.hero b{font-size:2rem}}
 </style>
 </head>
 <body>
@@ -79,10 +96,10 @@ td input.q{width:64px;padding:5px;border:1.5px solid var(--k);border-radius:6px}
   </header>
   <main id="view"></main>
 </div>
+<div id="modal" class="hide"><div id="mbox"></div></div>
 <div id="toast" class="hide"></div>
 
 <script>
-// ===== الإعدادات =====
 const SB_URL = "https://nxdskesytzuatasgdsoa.supabase.co/rest/v1/";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im54ZHNrZXN5dHp1YXRhc2dkc29hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4NTM3OTIsImV4cCI6MjEwMjQyOTc5Mn0.ZmaXVsTe7JxY1r8sfQZR0g0zdUwFn-Ov44uryDRN3VY";
 const DEFAULT_PASS = "2026";
@@ -90,12 +107,27 @@ const DEFAULT_PASS = "2026";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money = n => Number(n || 0).toLocaleString("ar-EG", {maximumFractionDigits: 2}) + " ج.م";
-const monthKey = d => d.slice(0, 7);
+const sum = a => a.reduce((x, y) => x + y, 0);
+const iso = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const today = () => iso(new Date());
+const fdate = s => s ? new Date(s).toLocaleDateString("ar-EG", {day: "numeric", month: "short", year: "numeric"}) : "—";
+const dOf = s => iso(new Date(s));
 const PER = {month: "شهري", week: "أسبوعي", day: "يومي"};
-const UNIT = {week: "أسابيع", day: "أيام"};
-let S = {clients: [], payments: [], workers: [], records: [], month: new Date().toISOString().slice(0, 7), tab: "dash"};
+const curKey = p => {
+  const d = new Date();
+  if (p === "month") return iso(d).slice(0, 7);
+  if (p === "day") return iso(d);
+  d.setDate(d.getDate() - ((d.getDay() + 1) % 7)); // بداية الأسبوع السبت
+  return iso(d);
+};
+const keyLabel = (k, p) => k.startsWith("x") ? "دفعة يدوية" : p === "month" ? k : p === "week" ? "أسبوع " + fdate(k) : fdate(k);
 
-function toast(m){const t=$("#toast");t.textContent=m;t.classList.remove("hide");clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.add("hide"),2500)}
+let S = {clients: [], payments: [], workers: [], records: [], month: iso(new Date()).slice(0, 7), tab: "dash"};
+
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.remove("hide"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add("hide"), 2500); }
+function modal(h) { $("#mbox").innerHTML = h; $("#modal").classList.remove("hide"); }
+function closeM() { $("#modal").classList.add("hide"); }
+$("#modal").onclick = e => { if (e.target.id === "modal") closeM(); };
 
 async function api(table, method = "GET", query = "", body) {
   const r = await fetch(SB_URL + table + query, {
@@ -103,10 +135,9 @@ async function api(table, method = "GET", query = "", body) {
     headers: {apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json", Prefer: "return=representation"},
     body: body ? JSON.stringify(body) : undefined
   });
-  if (!r.ok) { toast("حصل خطأ في الاتصال بقاعدة البيانات"); throw new Error(await r.text()); }
+  if (!r.ok) { toast("تعذر الاتصال بقاعدة البيانات"); throw new Error(await r.text()); }
   return r.status === 204 ? null : r.json();
 }
-
 async function sha(s) {
   const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bellakoko:" + s));
   return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
@@ -116,23 +147,33 @@ async function storedHash() {
   return r.length ? r[0].value : await sha(DEFAULT_PASS);
 }
 
-// ===== الدخول =====
+// ===== الدخول والحماية =====
+let fails = 0, lockUntil = 0;
 $("#loginForm").onsubmit = async e => {
   e.preventDefault();
+  if (Date.now() < lockUntil) { $("#lerr").textContent = "استنى " + Math.ceil((lockUntil - Date.now()) / 1000) + " ثانية"; return; }
   try {
-    if (await sha($("#pw").value) === await storedHash()) {
-      sessionStorage.setItem("bk_ok", "1"); start();
-    } else { $("#lerr").textContent = "كلمة السر غلط"; $("#pw").value = ""; }
-  } catch { $("#lerr").textContent = "تعذر الاتصال، راجع الإنترنت"; }
+    if (await sha($("#pw").value) === await storedHash()) { sessionStorage.setItem("bk_ok", "1"); start(); }
+    else {
+      fails++; $("#pw").value = "";
+      if (fails >= 5) { lockUntil = Date.now() + 60000; fails = 0; $("#lerr").textContent = "تم القفل لمدة دقيقة"; }
+      else $("#lerr").textContent = "كلمة السر غلط";
+    }
+  } catch { $("#lerr").textContent = "تعذر الاتصال"; }
 };
-$("#out").onclick = () => { sessionStorage.removeItem("bk_ok"); location.reload(); };
+const logout = () => { sessionStorage.removeItem("bk_ok"); location.reload(); };
+$("#out").onclick = logout;
+let idle; const bump = () => { clearTimeout(idle); idle = setTimeout(logout, 15 * 60 * 1000); };
+["click", "keydown", "touchstart"].forEach(ev => addEventListener(ev, bump));
+
 $("#nav").onclick = e => {
   const t = e.target.dataset.t; if (!t) return;
   S.tab = t; document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.t === t)); render();
 };
 
 async function start() {
-  $("#login").classList.add("hide"); $("#app").classList.remove("hide");
+  $("#login").classList.add("hide"); $("#app").classList.remove("hide"); bump();
+  $("#view").innerHTML = `<div class="empty">جاري التحميل...</div>`;
   await load(); render();
 }
 async function load() {
@@ -140,150 +181,200 @@ async function load() {
     api("clients", "GET", "?select=*&order=created_at.desc"),
     api("payments", "GET", "?select=*&order=paid_at.desc"),
     api("workers", "GET", "?select=*&order=created_at.asc"),
-    api("salary_records", "GET", "?select=*")
+    api("salary_records", "GET", "?select=*&paid=eq.true&order=paid_at.desc")
   ]);
   Object.assign(S, {clients: c, payments: p, workers: w, records: r});
 }
-const paidOf = id => S.payments.filter(p => p.client_id === id).reduce((a, p) => a + Number(p.amount), 0);
-const sum = a => a.reduce((x, y) => x + y, 0);
+const paidOf = id => sum(S.payments.filter(p => p.client_id === id).map(p => +p.amount));
+const incOf = k => sum(S.payments.filter(p => p.paid_at.slice(0, 7) === k).map(p => +p.amount));
+const salOf = k => sum(S.records.filter(r => dOf(r.paid_at).slice(0, 7) === k).map(r => +r.amount));
 const monthPick = () => `<input type="month" value="${S.month}" onchange="S.month=this.value;render()" aria-label="الشهر">`;
+const refresh = async () => { await load(); render(); };
 
 function render() {
   const v = $("#view");
-  if (S.tab === "dash") v.innerHTML = dash();
-  if (S.tab === "clients") v.innerHTML = clientsView();
-  if (S.tab === "workers") v.innerHTML = workersView();
-  if (S.tab === "settings") v.innerHTML = settingsView();
+  v.innerHTML = {dash, clients: clientsView, workers: workersView, settings: settingsView}[S.tab]();
 }
 
 // ===== الداش بورد =====
+function chart() {
+  const ms = []; let [y, m] = S.month.split("-").map(Number);
+  for (let i = 0; i < 6; i++) { ms.unshift(y + "-" + String(m).padStart(2, "0")); m--; if (!m) { m = 12; y--; } }
+  const data = ms.map(k => ({k, i: incOf(k), s: salOf(k)}));
+  const mx = Math.max(1, ...data.flatMap(d => [d.i, d.s]));
+  return `<div class="chart">${data.map(d => `<div class="col"><div class="bars"><i style="height:${d.i / mx * 100}%" title="${money(d.i)}"></i><u style="height:${d.s / mx * 100}%" title="${money(d.s)}"></u></div><small>${d.k.slice(5)}/${d.k.slice(2, 4)}</small></div>`).join("")}</div>
+  <div class="lg"><i></i> دخل <u></u> مرتبات</div>`;
+}
 function dash() {
-  const inc = sum(S.payments.filter(p => monthKey(p.paid_at) === S.month).map(p => Number(p.amount)));
-  const recs = S.records.filter(r => r.month === S.month);
-  const paidSal = sum(recs.filter(r => r.paid).map(r => Number(r.amount)));
-  const dueSal = sum(S.workers.map(w => {
-    const r = recs.find(x => x.worker_id === w.id);
-    return r ? (r.paid ? 0 : Number(r.amount)) : (w.period === "month" ? Number(w.salary) : 0);
-  }));
-  const owed = sum(S.clients.map(c => Math.max(0, Number(c.total_cost) - paidOf(c.id))));
-  const last = S.payments.filter(p => monthKey(p.paid_at) === S.month).slice(0, 8);
-  return `<div class="bar"><h2 style="margin:0">ملخص الشهر</h2>${monthPick()}</div>
+  const inc = incOf(S.month), paidSal = salOf(S.month);
+  const dueNow = sum(S.workers.filter(w => !S.records.some(r => r.worker_id === w.id && r.month === curKey(w.period))).map(w => +w.salary));
+  const owed = sum(S.clients.map(c => Math.max(0, +c.total_cost - paidOf(c.id))));
+  const profit = inc - paidSal;
+  const last = S.payments.filter(p => p.paid_at.slice(0, 7) === S.month).slice(0, 8);
+  return `<div class="bar"><h2 style="margin:0">الداش بورد</h2>${monthPick()}</div>
   <div class="stats">
-    <div class="stat hero"><span>دخلي الشهر ده</span><b>${money(inc)}</b></div>
-    <div class="stat"><span>مرتبات اتصرفت</span><b>${money(paidSal)}</b></div>
-    <div class="stat"><span>مرتبات لسه مستحقة</span><b>${money(dueSal)}</b></div>
-    <div class="stat"><span>الصافي (دخل − مرتبات)</span><b>${money(inc - paidSal)}</b></div>
-    <div class="stat"><span>باقي عند العملاء (إجمالي)</span><b>${money(owed)}</b></div>
-    <div class="stat"><span>عدد العملاء</span><b>${S.clients.length}</b></div>
+    <div class="stat hero"><span>دخل الشهر</span><b>${money(inc)}</b></div>
+    <div class="stat"><span>مرتبات مصروفة</span><b>${money(paidSal)}</b></div>
+    <div class="stat ${profit < 0 ? "neg" : "pos"}"><span>صافي الربح</span><b>${money(profit)}</b></div>
+    <div class="stat"><span>مرتبات لسه</span><b>${money(dueNow)}</b></div>
+    <div class="stat"><span>باقي عند العملاء</span><b>${money(owed)}</b></div>
+    <div class="stat"><span>العملاء</span><b>${S.clients.length}</b></div>
   </div>
-  <h2>آخر الدفعات في الشهر</h2>
+  <h2>آخر 6 شهور</h2><div class="panel">${chart()}</div>
+  <h2>دفعات الشهر</h2>
   <div class="tbl">${last.length ? `<table><tr><th>التاريخ</th><th>العميل</th><th>المبلغ</th></tr>${last.map(p => {
     const c = S.clients.find(x => x.id === p.client_id);
-    return `<tr><td>${esc(p.paid_at)}</td><td>${esc(c ? c.name : "-")}</td><td class="done">${money(p.amount)}</td></tr>`;
-  }).join("")}</table>` : `<div class="empty">مفيش دفعات في الشهر ده</div>`}</div>`;
+    return `<tr><td>${fdate(p.paid_at)}</td><td>${esc(c ? c.name : "-")}</td><td class="done">${money(p.amount)}</td></tr>`;
+  }).join("")}</table>` : `<div class="empty">لا توجد دفعات</div>`}</div>`;
 }
 
 // ===== العملاء =====
 function clientsView() {
-  return `<h2>إضافة عميل</h2>
+  return `<h2>عميل جديد</h2>
   <div class="form">
     <input id="cn" placeholder="اسم العميل">
-    <input id="cp" placeholder="رقم التليفون" inputmode="tel">
-    <input id="cc" type="number" min="0" placeholder="التكلفة الكلية">
-    <input id="cd" type="number" min="0" placeholder="دفع كام">
-    <input id="cw" class="full" placeholder="وصف الشغل (مثال: تشطيب مطبخ + دهانات)">
-    <button class="btn full" onclick="addClient()">حفظ العميل</button>
+    <input id="cp" placeholder="التليفون" inputmode="tel">
+    <input id="cc" type="number" min="0" placeholder="التكلفة">
+    <input id="cd" type="number" min="0" placeholder="المدفوع">
+    <input id="cw" class="full" placeholder="وصف الشغل">
+    <button class="btn full" onclick="addClient()">حفظ</button>
   </div>
-  <h2>العملاء</h2>
-  <div class="tbl">${S.clients.length ? `<table><tr><th>العميل</th><th>وصف الشغل</th><th>التكلفة</th><th>دفع</th><th>الباقي</th><th></th></tr>
+  <div class="bar"><h2 style="margin:0">العملاء</h2><input placeholder="بحث" oninput="filt(this.value)" style="flex:1;min-width:140px"></div>
+  <div class="tbl">${S.clients.length ? `<table><tr><th>العميل</th><th>وصف الشغل</th><th>التكلفة</th><th>المدفوع</th><th>الباقي</th><th></th></tr>
   ${S.clients.map(c => {
-    const p = paidOf(c.id), r = Number(c.total_cost) - p;
-    return `<tr><td><b>${esc(c.name)}</b><br><small>${esc(c.phone)}</small></td><td>${esc(c.work_desc)}</td>
+    const p = paidOf(c.id), r = +c.total_cost - p;
+    return `<tr data-s="${esc((c.name + " " + c.phone + " " + c.work_desc).toLowerCase())}"><td><b>${esc(c.name)}</b><br><small>${esc(c.phone)}</small></td><td>${esc(c.work_desc)}</td>
     <td>${money(c.total_cost)}</td><td class="done">${money(p)}</td>
-    <td class="${r > 0 ? "rem" : "done"}">${r > 0 ? money(r) : "خالص ✓"}</td>
-    <td><button class="btn sm alt" onclick="addPay('${c.id}')">+ دفعة</button>
-    <button class="btn sm del" onclick="delClient('${c.id}')">حذف</button></td></tr>`;
-  }).join("")}</table>` : `<div class="empty">لسه مفيش عملاء. ضيف أول عميل من فوق.</div>`}</div>`;
+    <td class="${r > 0 ? "rem" : "done"}">${r > 0 ? money(r) : "خالص"}</td>
+    <td><button class="btn sm alt" onclick="openClient('${c.id}')">فتح</button></td></tr>`;
+  }).join("")}</table>` : `<div class="empty">لا يوجد عملاء</div>`}</div>`;
 }
+function filt(q) { q = q.trim().toLowerCase(); document.querySelectorAll("tr[data-s]").forEach(r => r.classList.toggle("hide", !r.dataset.s.includes(q))); }
 async function addClient() {
   const name = $("#cn").value.trim(); if (!name) return toast("اكتب اسم العميل");
   const [c] = await api("clients", "POST", "", {name, phone: $("#cp").value.trim(), work_desc: $("#cw").value.trim(), total_cost: +$("#cc").value || 0});
   const d = +$("#cd").value;
   if (d > 0) await api("payments", "POST", "", {client_id: c.id, amount: d});
-  await load(); render(); toast("تم حفظ العميل");
+  await refresh(); toast("تم الحفظ");
 }
-async function addPay(id) {
-  const a = +prompt("قيمة الدفعة (ج.م):"); if (!(a > 0)) return;
-  await api("payments", "POST", "", {client_id: id, amount: a});
-  await load(); render(); toast("تم تسجيل الدفعة");
+function openClient(id) {
+  const c = S.clients.find(x => x.id === id), ps = S.payments.filter(p => p.client_id === id);
+  const paid = sum(ps.map(p => +p.amount)), rem = +c.total_cost - paid;
+  modal(`<div class="mh"><h2>${esc(c.name)}</h2><button class="x" onclick="closeM()" aria-label="إغلاق">✕</button></div>
+  <div class="form">
+    <label>الاسم<input id="en" value="${esc(c.name)}"></label>
+    <label>التليفون<input id="ep" value="${esc(c.phone)}"></label>
+    <label>التكلفة<input id="ec" type="number" min="0" value="${c.total_cost}"></label>
+    <label class="full">وصف الشغل<input id="ew" value="${esc(c.work_desc)}"></label>
+    <button class="btn full" onclick="saveClient('${id}')">حفظ التعديل</button>
+  </div>
+  <div class="stats"><div class="stat"><span>المدفوع</span><b class="done">${money(paid)}</b></div><div class="stat"><span>الباقي</span><b class="${rem > 0 ? "rem" : "done"}">${money(Math.max(0, rem))}</b></div></div>
+  <div class="bar"><input id="np" type="number" min="0" placeholder="مبلغ الدفعة"><input id="nd" type="date" value="${today()}"><button class="btn alt" onclick="payClient('${id}')">تسجيل دفعة</button></div>
+  <div class="tbl">${ps.length ? `<table><tr><th>التاريخ</th><th>المبلغ</th><th></th></tr>${ps.map(p => `<tr><td>${fdate(p.paid_at)}</td><td class="done">${money(p.amount)}</td><td><button class="btn sm del" onclick="delPay('${p.id}','${id}')">حذف</button></td></tr>`).join("")}</table>` : `<div class="empty">لا توجد دفعات</div>`}</div>
+  <button class="btn del" style="margin-top:14px" onclick="delClient('${id}')">حذف العميل</button>`);
+}
+async function saveClient(id) {
+  await api("clients", "PATCH", "?id=eq." + id, {name: $("#en").value.trim(), phone: $("#ep").value.trim(), work_desc: $("#ew").value.trim(), total_cost: +$("#ec").value || 0});
+  await refresh(); openClient(id); toast("تم الحفظ");
+}
+async function payClient(id) {
+  const a = +$("#np").value; if (!(a > 0)) return toast("اكتب المبلغ");
+  await api("payments", "POST", "", {client_id: id, amount: a, paid_at: $("#nd").value || today()});
+  await refresh(); openClient(id); toast("تم تسجيل الدفعة");
+}
+async function delPay(pid, cid) {
+  if (!confirm("حذف الدفعة؟")) return;
+  await api("payments", "DELETE", "?id=eq." + pid); await refresh(); openClient(cid);
 }
 async function delClient(id) {
   if (!confirm("حذف العميل وكل دفعاته؟")) return;
-  await api("clients", "DELETE", "?id=eq." + id); await load(); render();
+  await api("clients", "DELETE", "?id=eq." + id); closeM(); await refresh();
 }
 
 // ===== العمال =====
+function lastPaid(wid) { const r = S.records.find(x => x.worker_id === wid); return r ? r.paid_at : null; }
 function workersView() {
-  const recs = S.records.filter(r => r.month === S.month);
-  return `<h2>إضافة عامل</h2>
+  const due = sum(S.workers.filter(w => !S.records.some(r => r.worker_id === w.id && r.month === curKey(w.period))).map(w => +w.salary));
+  return `<h2>عامل جديد</h2>
   <div class="form">
     <input id="wn" placeholder="اسم العامل">
     <input id="ws" type="number" min="0" placeholder="المرتب">
-    <select id="wp"><option value="month">في الشهر</option><option value="week">في الأسبوع</option><option value="day">في اليوم</option></select>
-    <button class="btn" onclick="addWorker()">حفظ العامل</button>
+    <select id="wp"><option value="month">شهري</option><option value="week">أسبوعي</option><option value="day">يومي</option></select>
+    <button class="btn" onclick="addWorker()">حفظ</button>
   </div>
-  <div class="bar"><h2 style="margin:0">مرتبات شهر</h2>${monthPick()}</div>
-  <div class="tbl">${S.workers.length ? `<table><tr><th>العامل</th><th>المرتب</th><th>العدد</th><th>المستحق</th><th>استلم؟</th><th></th></tr>
+  <div class="stats"><div class="stat"><span>لسه ما استلموش</span><b class="rem">${money(due)}</b></div></div>
+  <div class="tbl">${S.workers.length ? `<table><tr><th>العامل</th><th>المرتب</th><th>الحالة</th><th>آخر استلام</th><th></th></tr>
   ${S.workers.map(w => {
-    const r = recs.find(x => x.worker_id === w.id);
-    const q = r ? r.qty : 1, amt = Number(w.salary) * (w.period === "month" ? 1 : q);
-    return `<tr><td><b>${esc(w.name)}</b></td><td>${money(w.salary)} <small>(${PER[w.period]})</small></td>
-    <td>${w.period === "month" ? "—" : `<input class="q" type="number" min="0" value="${q}" onchange="setQty('${w.id}',this.value)"> ${UNIT[w.period]}`}</td>
-    <td><b>${money(amt)}</b></td>
-    <td><button class="pill ${r && r.paid ? "on" : ""}" onclick="togglePaid('${w.id}')">${r && r.paid ? "استلم ✓" : "لسه"}</button></td>
-    <td><button class="btn sm del" onclick="delWorker('${w.id}')">حذف</button></td></tr>`;
-  }).join("")}</table>` : `<div class="empty">لسه مفيش عمال. ضيف أول عامل من فوق.</div>`}</div>`;
+    const got = S.records.some(r => r.worker_id === w.id && r.month === curKey(w.period));
+    return `<tr><td><b>${esc(w.name)}</b></td><td>${money(w.salary)} <small>${PER[w.period]}</small></td>
+    <td><button class="pill ${got ? "on" : ""}" onclick="togglePaid('${w.id}')">${got ? "استلم" : "لسه"}</button></td>
+    <td>${fdate(lastPaid(w.id))}</td>
+    <td><button class="btn sm alt" onclick="openWorker('${w.id}')">السجل</button></td></tr>`;
+  }).join("")}</table>` : `<div class="empty">لا يوجد عمال</div>`}</div>`;
 }
 async function addWorker() {
   const name = $("#wn").value.trim(); if (!name) return toast("اكتب اسم العامل");
   await api("workers", "POST", "", {name, salary: +$("#ws").value || 0, period: $("#wp").value});
-  await load(); render(); toast("تم حفظ العامل");
+  await refresh(); toast("تم الحفظ");
 }
-async function saveRec(wid, patch) {
-  const w = S.workers.find(x => x.id === wid), r = S.records.find(x => x.worker_id === wid && x.month === S.month);
-  const qty = patch.qty ?? (r ? r.qty : 1);
-  const body = {qty, amount: Number(w.salary) * (w.period === "month" ? 1 : qty), ...(patch.paid !== undefined ? {paid: patch.paid, paid_at: patch.paid ? new Date().toISOString() : null} : {})};
-  if (r) await api("salary_records", "PATCH", "?id=eq." + r.id, body);
-  else await api("salary_records", "POST", "", {worker_id: wid, month: S.month, paid: false, ...body});
-  await load(); render();
+async function togglePaid(id) {
+  const w = S.workers.find(x => x.id === id), k = curKey(w.period);
+  const r = S.records.find(x => x.worker_id === id && x.month === k);
+  if (r) { if (!confirm("إلغاء الاستلام؟")) return; await api("salary_records", "DELETE", "?id=eq." + r.id); }
+  else {
+    await api("salary_records", "DELETE", `?worker_id=eq.${id}&month=eq.${k}`);
+    await api("salary_records", "POST", "", {worker_id: id, month: k, qty: 1, amount: w.salary, paid: true, paid_at: new Date().toISOString()});
+  }
+  await refresh();
 }
-const setQty = (id, v) => saveRec(id, {qty: Math.max(0, +v || 0)});
-function togglePaid(id) {
-  const r = S.records.find(x => x.worker_id === id && x.month === S.month);
-  saveRec(id, {paid: !(r && r.paid)});
+function openWorker(id) {
+  const w = S.workers.find(x => x.id === id), rs = S.records.filter(r => r.worker_id === id);
+  modal(`<div class="mh"><h2>${esc(w.name)}</h2><button class="x" onclick="closeM()" aria-label="إغلاق">✕</button></div>
+  <div class="form">
+    <label>الاسم<input id="wen" value="${esc(w.name)}"></label>
+    <label>المرتب<input id="wes" type="number" min="0" value="${w.salary}"></label>
+    <label>النوع<select id="wep">${Object.entries(PER).map(([k, v]) => `<option value="${k}" ${k === w.period ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+    <button class="btn" onclick="saveWorker('${id}')">حفظ التعديل</button>
+  </div>
+  <div class="stats"><div class="stat"><span>إجمالي المستلم</span><b>${money(sum(rs.map(r => +r.amount)))}</b></div><div class="stat"><span>مرات الاستلام</span><b>${rs.length}</b></div></div>
+  <div class="bar"><input id="mx" type="number" min="0" placeholder="مبلغ"><input id="md" type="date" value="${today()}"><button class="btn alt" onclick="manualPay('${id}')">صرف مبلغ</button></div>
+  <div class="tbl">${rs.length ? `<table><tr><th>الفترة</th><th>المبلغ</th><th>تاريخ الاستلام</th><th></th></tr>${rs.map(r => `<tr><td>${keyLabel(r.month, w.period)}</td><td>${money(r.amount)}</td><td>${fdate(r.paid_at)}</td><td><button class="btn sm del" onclick="delRec('${r.id}','${id}')">حذف</button></td></tr>`).join("")}</table>` : `<div class="empty">لا يوجد سجل</div>`}</div>
+  <button class="btn del" style="margin-top:14px" onclick="delWorker('${id}')">حذف العامل</button>`);
+}
+async function saveWorker(id) {
+  await api("workers", "PATCH", "?id=eq." + id, {name: $("#wen").value.trim(), salary: +$("#wes").value || 0, period: $("#wep").value});
+  await refresh(); openWorker(id); toast("تم الحفظ");
+}
+async function manualPay(id) {
+  const a = +$("#mx").value; if (!(a > 0)) return toast("اكتب المبلغ");
+  await api("salary_records", "POST", "", {worker_id: id, month: "x" + Date.now(), qty: 1, amount: a, paid: true, paid_at: ($("#md").value || today()) + "T12:00:00"});
+  await refresh(); openWorker(id); toast("تم الصرف");
+}
+async function delRec(rid, wid) {
+  if (!confirm("حذف السجل؟")) return;
+  await api("salary_records", "DELETE", "?id=eq." + rid); await refresh(); openWorker(wid);
 }
 async function delWorker(id) {
-  if (!confirm("حذف العامل وسجل مرتباته؟")) return;
-  await api("workers", "DELETE", "?id=eq." + id); await load(); render();
+  if (!confirm("حذف العامل وسجله؟")) return;
+  await api("workers", "DELETE", "?id=eq." + id); closeM(); await refresh();
 }
 
 // ===== الإعدادات =====
 function settingsView() {
-  return `<h2>تغيير كلمة السر</h2>
+  return `<h2>كلمة السر</h2>
   <div class="form" style="max-width:420px;grid-template-columns:1fr">
-    <input id="p0" type="password" placeholder="كلمة السر الحالية" autocomplete="current-password">
-    <input id="p1" type="password" placeholder="كلمة السر الجديدة (4 حروف/أرقام على الأقل)" autocomplete="new-password">
-    <input id="p2" type="password" placeholder="أعد كتابة الجديدة" autocomplete="new-password">
-    <button class="btn" onclick="changePass()">حفظ كلمة السر</button>
+    <input id="p0" type="password" placeholder="الحالية" autocomplete="current-password">
+    <input id="p1" type="password" placeholder="الجديدة" autocomplete="new-password">
+    <input id="p2" type="password" placeholder="تأكيد الجديدة" autocomplete="new-password">
+    <button class="btn" onclick="changePass()">حفظ</button>
   </div>`;
 }
 async function changePass() {
   const [a, b, c] = ["#p0", "#p1", "#p2"].map(s => $(s).value);
   if (await sha(a) !== await storedHash()) return toast("كلمة السر الحالية غلط");
-  if (b.length < 4) return toast("كلمة السر الجديدة قصيرة");
-  if (b !== c) return toast("كلمتين السر مش متطابقتين");
-  const h = await sha(b);
-  const ex = await api("settings", "GET", "?key=eq.pass_hash&select=key");
+  if (b.length < 4) return toast("كلمة السر قصيرة");
+  if (b !== c) return toast("غير متطابقتين");
+  const h = await sha(b), ex = await api("settings", "GET", "?key=eq.pass_hash&select=key");
   if (ex.length) await api("settings", "PATCH", "?key=eq.pass_hash", {value: h});
   else await api("settings", "POST", "", {key: "pass_hash", value: h});
   ["#p0", "#p1", "#p2"].forEach(s => $(s).value = ""); toast("تم تغيير كلمة السر");
