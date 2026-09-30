@@ -126,6 +126,21 @@ td .v{min-width:0;overflow-wrap:anywhere}
   nav button{font-size:.68rem}
   .stat span{font-size:.8rem}
 }
+
+/* ===== تحسين تصميم الداش بورد ===== */
+.dashboard-head{background:linear-gradient(135deg,#000 0%,#171717 100%);color:#fff;border:2px solid #000;border-radius:18px;padding:18px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;box-shadow:0 8px 0 rgba(0,0,0,.08)}
+.dashboard-head h2{color:var(--y);margin:0;font-size:1.45rem}.dashboard-head p{color:#ddd;font-size:.86rem;margin-top:3px}.dashboard-head input{background:#fff;border:0;border-radius:9px;padding:10px 12px;min-height:42px}
+.dashboard-actions{display:flex;gap:8px;flex-wrap:wrap}.dashboard-actions .btn{background:var(--y);color:#000}.dashboard-actions .btn:hover{background:#fff}
+.dashboard-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}.dashboard-stats .stat{min-height:112px;position:relative;overflow:hidden;box-shadow:0 4px 0 rgba(0,0,0,.07)}
+.dashboard-stats .stat::after{content:"";position:absolute;width:58px;height:58px;border-radius:50%;background:rgba(253,185,19,.18);left:-16px;bottom:-20px}.dashboard-stats .stat.hero{grid-column:span 2;background:var(--y);border-color:#000}.dashboard-stats .stat.hero::after{background:rgba(255,255,255,.22)}
+.dashboard-stats .stat.hero b{font-size:2.15rem}.dashboard-stats .stat b{font-size:1.45rem;position:relative;z-index:1}.dashboard-stats .stat span{position:relative;z-index:1}.dashboard-stats .stat small{display:block;color:var(--mut);margin-top:4px;position:relative;z-index:1}.dashboard-stats .neg b{color:var(--bad)}
+.dashboard-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,.65fr);gap:16px;align-items:start}.dashboard-grid .panel{margin:0;height:100%}.dashboard-panel-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.dashboard-panel-title h2{margin:0;font-size:1.05rem}.dashboard-panel-title small{color:var(--mut)}
+.dashboard-chart{height:210px}.dashboard-chart .bars{padding-top:8px}.dashboard-chart .bars i,.dashboard-chart .bars u,.dashboard-chart .bars b{min-height:3px}.dashboard-chart .col small{font-weight:600;color:var(--mut)}
+.month-summary{display:grid;gap:10px}.summary-row{display:grid;grid-template-columns:92px 1fr auto;align-items:center;gap:9px;font-size:.86rem}.summary-row .track{height:9px;background:#eee;border-radius:99px;overflow:hidden}.summary-row .fill{height:100%;border-radius:99px;background:var(--y)}.summary-row .fill.black{background:#000}.summary-row .fill.red{background:var(--bad)}
+.activity-table{max-height:360px;overflow:auto}.activity-table table{min-width:520px}.type-expense{color:var(--bad);font-weight:800}.type-income{color:var(--ok);font-weight:800}.type-salary{color:#555;font-weight:800}
+@media(max-width:800px){.dashboard-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-stats .stat.hero{grid-column:1/-1}.dashboard-grid{grid-template-columns:1fr}}
+@media(max-width:500px){.dashboard-head{padding:15px}.dashboard-head h2{font-size:1.2rem}.dashboard-actions{width:100%}.dashboard-actions .btn{flex:1}.dashboard-stats{gap:8px}.dashboard-stats .stat{min-height:100px;padding:11px}.dashboard-stats .stat b{font-size:1.15rem}.dashboard-stats .stat.hero b{font-size:1.85rem}.summary-row{grid-template-columns:78px 1fr auto;font-size:.78rem}}
+
 </style>
 </head>
 <body>
@@ -304,7 +319,7 @@ function chart() {
   for (let i = 0; i < 6; i++) { ms.unshift(y + "-" + String(m).padStart(2, "0")); m--; if (!m) { m = 12; y--; } }
   const data = ms.map(k => ({k, i: incOf(k), s: salOf(k), e: expOf(k)}));
   const mx = Math.max(1, ...data.flatMap(d => [d.i, d.s, d.e]));
-  return `<div class="chart">${data.map(d => `<div class="col" data-tip="${d.k}: دخل ${money(d.i)} — مرتبات ${money(d.s)} — مصروفات ${money(d.e)}"><div class="bars"><i style="height:${d.i / mx * 100}%" title="${money(d.i)}"></i><u style="height:${d.s / mx * 100}%" title="${money(d.s)}"></u><b style="height:${d.e / mx * 100}%;display:block;flex:1;background:var(--bad);border-radius:4px 4px 0 0" title="${money(d.e)}"></b></div><small>${d.k.slice(5)}/${d.k.slice(2, 4)}</small></div>`).join("")}</div>
+  return `<div class="chart dashboard-chart-inner">${data.map(d => `<div class="col" data-tip="${d.k}: دخل ${money(d.i)} — مرتبات ${money(d.s)} — مصروفات ${money(d.e)}"><div class="bars"><i style="height:${d.i / mx * 100}%" title="${money(d.i)}"></i><u style="height:${d.s / mx * 100}%" title="${money(d.s)}"></u><b style="height:${d.e / mx * 100}%;display:block;flex:1;background:var(--bad);border-radius:4px 4px 0 0" title="${money(d.e)}"></b></div><small>${d.k.slice(5)}/${d.k.slice(2, 4)}</small></div>`).join("")}</div>
   <div class="lg"><i></i> دخل <u></u> مرتبات <b style="display:inline-block;width:14px;height:14px;background:var(--bad);border-radius:3px;margin-right:10px"></b> مصروفات</div>`;
 }
 function dash() {
@@ -312,23 +327,35 @@ function dash() {
   const dueNow = sum(S.workers.filter(w => !S.records.some(r => r.worker_id === w.id && r.month === curKey(w.period))).map(w => +w.salary));
   const owed = sum(S.clients.map(c => Math.max(0, +c.total_cost - paidOf(c.id))));
   const profit = inc - paidSal - expenses;
-  const last = S.payments.filter(p => p.paid_at.slice(0, 7) === S.month).slice(0, 8);
-  return `<div class="bar"><h2 style="margin:0">الداش بورد</h2>${monthPick()}</div>
-  <div class="stats">
-    <div class="stat hero"><span>دخل الشهر</span><b>${money(inc)}</b></div>
-    <div class="stat"><span>مرتبات مصروفة</span><b>${money(paidSal)}</b></div>
-    <div class="stat"><span>المصروفات</span><b class="rem">${money(expenses)}</b></div>
-    <div class="stat ${profit < 0 ? "neg" : "pos"}"><span>صافي الربح بعد المصروفات</span><b>${money(profit)}</b></div>
-    <div class="stat"><span>مرتبات لسه</span><b>${money(dueNow)}</b></div>
-    <div class="stat"><span>باقي عند العملاء</span><b>${money(owed)}</b></div>
-    <div class="stat"><span>العملاء</span><b>${S.clients.length}</b></div>
+  const maxOut = Math.max(1, paidSal, expenses);
+  const activity = [
+    ...S.payments.filter(p => String(p.paid_at || '').slice(0, 7) === S.month).map(p => ({date:p.paid_at, label:(S.clients.find(c => c.id === p.client_id)?.name || 'دفعة من عميل'), amount:+p.amount, type:'income', typeLabel:'دخل'})),
+    ...S.records.filter(r => String(r.paid_at || '').slice(0, 7) === S.month).map(r => ({date:r.paid_at, label:(S.workers.find(w => w.id === r.worker_id)?.name || 'مرتب'), amount:+r.amount, type:'salary', typeLabel:'مرتب'})),
+    ...S.expenses.filter(e => String(e.expense_date || e.created_at || '').slice(0, 7) === S.month).map(e => ({date:e.expense_date, label:e.description, amount:+e.amount, type:'expense', typeLabel:'مصروف'}))
+  ].sort((a,b) => String(b.date).localeCompare(String(a.date))).slice(0, 10);
+  return `<div class="dashboard-head">
+    <div><h2>نظرة سريعة على الحسابات</h2><p>ملخص الأداء والحركة خلال الشهر المحدد</p></div>
+    <div class="dashboard-actions">${monthPick()}<button class="btn" onclick="S.tab='expenses';document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==='expenses'));render()">+ مصروف</button><button class="btn" onclick="S.tab='clients';document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==='clients'));render()">+ عميل</button></div>
   </div>
-  <h2>آخر 6 شهور</h2><div class="panel">${chart()}</div>
-  <h2>دفعات الشهر</h2>
-  <div class="tbl">${last.length ? `<table><tr><th>التاريخ</th><th>العميل</th><th>المبلغ</th></tr>${last.map(p => {
-    const c = S.clients.find(x => x.id === p.client_id);
-    return `<tr><td>${fdate(p.paid_at)}</td><td>${esc(c ? c.name : "-")}</td><td class="done">${money(p.amount)}</td></tr>`;
-  }).join("")}</table>` : `<div class="empty">لا توجد دفعات</div>`}</div>`;
+  <div class="dashboard-stats">
+    <div class="stat hero"><span>دخل الشهر</span><b>${money(inc)}</b><small>إجمالي الدفعات المحصلة</small></div>
+    <div class="stat ${profit < 0 ? 'neg' : 'pos'}"><span>صافي الربح</span><b>${money(profit)}</b><small>بعد المرتبات والمصروفات</small></div>
+    <div class="stat"><span>المصروفات</span><b class="rem">${money(expenses)}</b><small>مصروفات الشهر</small></div>
+    <div class="stat"><span>المرتبات</span><b>${money(paidSal)}</b><small>المبالغ المصروفة</small></div>
+    <div class="stat"><span>باقي العملاء</span><b>${money(owed)}</b><small>مبالغ لم تُحصّل بعد</small></div>
+    <div class="stat"><span>مرتبات مستحقة</span><b class="rem">${money(dueNow)}</b><small>لم يتم صرفها بعد</small></div>
+  </div>
+  <div class="dashboard-grid">
+    <div class="panel"><div class="dashboard-panel-title"><h2>حركة آخر 6 شهور</h2><small>الدخل مقابل الخارج</small></div><div class="dashboard-chart">${chart()}</div></div>
+    <div class="panel"><div class="dashboard-panel-title"><h2>توزيع الخارج</h2><small>${S.month}</small></div><div class="month-summary">
+      <div class="summary-row"><span>مرتبات</span><div class="track"><div class="fill black" style="width:${paidSal / maxOut * 100}%"></div></div><b>${money(paidSal)}</b></div>
+      <div class="summary-row"><span>مصروفات</span><div class="track"><div class="fill red" style="width:${expenses / maxOut * 100}%"></div></div><b>${money(expenses)}</b></div>
+      <div class="summary-row"><span>الإجمالي</span><div class="track"><div class="fill" style="width:${(paidSal + expenses) / Math.max(1, inc, paidSal + expenses) * 100}%"></div></div><b>${money(paidSal + expenses)}</b></div>
+    </div></div>
+  </div>
+  <div class="panel" style="margin-top:16px"><div class="dashboard-panel-title"><h2>آخر العمليات</h2><small>${activity.length} عمليات</small></div>
+    <div class="activity-table">${activity.length ? `<table><tr><th>التاريخ</th><th>البيان</th><th>النوع</th><th>المبلغ</th></tr>${activity.map(a => `<tr><td>${fdate(a.date)}</td><td>${esc(a.label)}</td><td class="type-${a.type}">${a.typeLabel}</td><td class="${a.type === 'income' ? 'done' : 'rem'}">${a.type === 'income' ? '+' : '-'} ${money(a.amount)}</td></tr>`).join('')}</table>` : `<div class="empty">لا توجد عمليات في هذا الشهر</div>`}</div>
+  </div>`;
 }
 
 // ===== العملاء =====
