@@ -3,7 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#FDB913">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <meta name="robots" content="noindex,nofollow">
 <title>BELLA KOKO | الحسابات</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,7 +28,7 @@ button,input,select{font:inherit}
 #login form{background:var(--y);padding:32px 28px;border-radius:50% 50% 24px 24px/30% 30% 24px 24px;width:min(360px,100%);text-align:center;display:grid;gap:14px;justify-items:center}
 #login input{width:100%;padding:12px;border:2px solid var(--k);border-radius:10px;text-align:center;font-size:1.2rem;background:var(--w)}
 .btn{background:var(--k);color:var(--y);border:0;padding:10px 18px;border-radius:10px;font-weight:800;cursor:pointer}
-.btn:hover{background:#222}.btn.alt{background:var(--y);color:var(--k)}.btn.sm{padding:5px 12px;font-size:.85rem}
+.btn:hover{background:#222}.btn:disabled{opacity:.55;cursor:not-allowed;pointer-events:none}.btn.alt{background:var(--y);color:var(--k)}.btn.sm{padding:5px 12px;font-size:.85rem}
 .btn.del{background:transparent;color:var(--bad);border:1px solid var(--bad)}
 :focus-visible{outline:3px solid var(--k);outline-offset:2px}
 header{background:var(--k);color:var(--w);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:4px solid var(--y)}
@@ -164,12 +167,14 @@ const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const money = n => Number(n || 0).toLocaleString("ar-EG", {maximumFractionDigits: 2}) + " ج.م";
-const sum = a => a.reduce((x, y) => x + y, 0);
-const iso = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const money = n => Number.isFinite(Number(n)) ? Number(n).toLocaleString("ar-EG", {maximumFractionDigits: 2}) + " ج.م" : "0 ج.م";
+const sum = a => (Array.isArray(a) ? a : []).reduce((x, y) => x + (Number.isFinite(Number(y)) ? Number(y) : 0), 0);
+const iso = d => { const x = d instanceof Date ? d : new Date(d); return Number.isNaN(x.getTime()) ? "" : x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0"); };
 const today = () => iso(new Date());
-const fdate = s => s ? new Date(s).toLocaleDateString("ar-EG", {day: "numeric", month: "short", year: "numeric"}) : "—";
-const dOf = s => iso(new Date(s));
+const validDate = s => !!s && !Number.isNaN(new Date(s).getTime());
+const fdate = s => validDate(s) ? new Date(s).toLocaleDateString("ar-EG", {day: "numeric", month: "short", year: "numeric"}) : "—";
+const dOf = s => validDate(s) ? iso(s) : "";
+const safeAmount = v => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : null; };
 const PER = {month: "شهري", week: "أسبوعي", day: "يومي"};
 const curKey = p => {
   const d = new Date();
@@ -178,7 +183,7 @@ const curKey = p => {
   d.setDate(d.getDate() - ((d.getDay() + 1) % 7)); // بداية الأسبوع السبت
   return iso(d);
 };
-const keyLabel = (k, p) => k.startsWith("x") ? "دفعة يدوية" : p === "month" ? k : p === "week" ? "أسبوع " + fdate(k) : fdate(k);
+const keyLabel = (k, p) => String(k || "").startsWith("x") ? "دفعة يدوية" : p === "month" ? k : p === "week" ? "أسبوع " + fdate(k) : fdate(k);
 
 let S = {clients: [], payments: [], workers: [], records: [], month: iso(new Date()).slice(0, 7), tab: "dash"};
 
@@ -197,23 +202,33 @@ function closeM() { $("#modal").classList.add("hide"); document.body.style.overf
 $("#modal").onclick = e => { if (e.target.id === "modal") closeM(); };
 
 let session = null;
+const SESSION_KEY = "bella_koko_session_v2";
+function saveSession() { try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch {} }
+function clearSession() { try { sessionStorage.removeItem(SESSION_KEY); } catch {} }
+function restoreSession() { try { const x = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null"); if (x?.access_token && x?.refresh_token) session = x; } catch { clearSession(); } }
+async function request(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try { return await fetch(url, {...options, signal: controller.signal}); }
+  finally { clearTimeout(timer); }
+}
 function authCall(path, method, body, token) {
-  return fetch(SB_BASE + "/auth/v1/" + path, {method, headers: {apikey: SB_KEY, "Content-Type": "application/json", ...(token ? {Authorization: "Bearer " + token} : {})}, body: body ? JSON.stringify(body) : undefined});
+  return request(SB_BASE + "/auth/v1/" + path, {method, headers: {apikey: SB_KEY, "Content-Type": "application/json", ...(token ? {Authorization: "Bearer " + token} : {})}, body: body ? JSON.stringify(body) : undefined});
 }
 async function signIn(pw) {
   const r = await authCall("token?grant_type=password", "POST", {email: AUTH_EMAIL, password: pw});
   if (r.status === 400 || r.status === 401 || r.status === 422) return false;
   if (!r.ok) throw new Error(await r.text());
-  session = await r.json(); return true;
+  session = await r.json(); saveSession(); return true;
 }
 async function refreshSession() {
   const r = await authCall("token?grant_type=refresh_token", "POST", {refresh_token: session.refresh_token});
   if (!r.ok) { logout(); throw new Error("session expired"); }
-  session = await r.json();
+  session = await r.json(); saveSession();
 }
 async function api(table, method = "GET", query = "", body, retry = true) {
-  if (session && session.expires_at - 60 < Date.now() / 1000) await refreshSession();
-  const r = await fetch(SB_URL + table + query, {
+  if (session && session.expires_at && session.expires_at - 60 < Date.now() / 1000) await refreshSession();
+  const r = await request(SB_URL + table + query, {
     method,
     headers: {apikey: SB_KEY, Authorization: "Bearer " + (session ? session.access_token : SB_KEY), "Content-Type": "application/json", Prefer: "return=representation"},
     body: body ? JSON.stringify(body) : undefined
@@ -239,7 +254,9 @@ $("#loginForm").onsubmit = async e => {
 };
 document.addEventListener("click", e => { const c = e.target.closest(".col[data-tip]"); if (c) toast(c.dataset.tip); });
 const logout = () => {
-  if (session) fetch(SB_BASE + "/auth/v1/logout", {method: "POST", headers: {apikey: SB_KEY, Authorization: "Bearer " + session.access_token}, keepalive: true}).catch(() => {});
+  const token = session?.access_token;
+  clearSession(); session = null;
+  if (token) request(SB_BASE + "/auth/v1/logout", {method: "POST", headers: {apikey: SB_KEY, Authorization: "Bearer " + token}, keepalive: true}).catch(() => {});
   location.reload();
 };
 $("#out").onclick = logout;
@@ -254,7 +271,8 @@ $("#nav").onclick = e => {
 async function start() {
   $("#login").classList.add("hide"); $("#app").classList.remove("hide"); bump();
   $("#view").innerHTML = `<div class="empty">جاري التحميل...</div>`;
-  await load(); render();
+  try { await load(); render(); }
+  catch { $("#view").innerHTML = `<div class="empty">تعذر تحميل البيانات. تحقق من الاتصال ثم أعد المحاولة.</div>`; }
 }
 async function load() {
   const [c, p, w, r] = await Promise.all([
@@ -265,9 +283,9 @@ async function load() {
   ]);
   Object.assign(S, {clients: c, payments: p, workers: w, records: r});
 }
-const paidOf = id => sum(S.payments.filter(p => p.client_id === id).map(p => +p.amount));
-const incOf = k => sum(S.payments.filter(p => p.paid_at.slice(0, 7) === k).map(p => +p.amount));
-const salOf = k => sum(S.records.filter(r => dOf(r.paid_at).slice(0, 7) === k).map(r => +r.amount));
+const paidOf = id => sum(S.payments.filter(p => p.client_id === id).map(p => p.amount));
+const incOf = k => sum(S.payments.filter(p => dOf(p.paid_at).slice(0, 7) === k).map(p => p.amount));
+const salOf = k => sum(S.records.filter(r => dOf(r.paid_at).slice(0, 7) === k).map(r => r.amount));
 const monthPick = () => `<input type="month" value="${S.month}" onchange="S.month=this.value;render()" aria-label="الشهر">`;
 const refresh = async () => { await load(); render(); };
 
@@ -333,8 +351,9 @@ function clientsView() {
 function filt(q) { q = q.trim().toLowerCase(); document.querySelectorAll("tr[data-s]").forEach(r => r.classList.toggle("hide", !r.dataset.s.includes(q))); }
 async function addClient() {
   const name = $("#cn").value.trim(); if (!name) return toast("اكتب اسم العميل");
-  const [c] = await api("clients", "POST", "", {name, phone: $("#cp").value.trim(), work_desc: $("#cw").value.trim(), total_cost: +$("#cc").value || 0});
-  const d = +$("#cd").value;
+  const total = safeAmount($("#cc").value), d = safeAmount($("#cd").value) ?? 0;
+  if (total === null || d < 0 || d > total) return toast("راجع التكلفة والمدفوع");
+  const [c] = await api("clients", "POST", "", {name, phone: $("#cp").value.trim(), work_desc: $("#cw").value.trim(), total_cost: total});
   if (d > 0) await api("payments", "POST", "", {client_id: c.id, amount: d});
   await refresh(); toast("تم الحفظ");
 }
@@ -359,7 +378,7 @@ async function saveClient(id) {
   await refresh(); openClient(id); toast("تم الحفظ");
 }
 async function payClient(id) {
-  const a = +$("#np").value; if (!(a > 0)) return toast("اكتب المبلغ");
+  const a = safeAmount($("#np").value); if (!(a > 0)) return toast("اكتب مبلغًا صحيحًا أكبر من صفر");
   await api("payments", "POST", "", {client_id: id, amount: a, paid_at: $("#nd").value || today()});
   await refresh(); openClient(id); toast("تم تسجيل الدفعة");
 }
@@ -395,7 +414,8 @@ function workersView() {
 }
 async function addWorker() {
   const name = $("#wn").value.trim(); if (!name) return toast("اكتب اسم العامل");
-  await api("workers", "POST", "", {name, salary: +$("#ws").value || 0, period: $("#wp").value});
+  const salary = safeAmount($("#ws").value); if (salary === null || salary <= 0) return toast("اكتب مرتبًا صحيحًا أكبر من صفر");
+  await api("workers", "POST", "", {name, salary, period: $("#wp").value});
   await refresh(); toast("تم الحفظ");
 }
 async function togglePaid(id) {
@@ -427,7 +447,7 @@ async function saveWorker(id) {
   await refresh(); openWorker(id); toast("تم الحفظ");
 }
 async function manualPay(id) {
-  const a = +$("#mx").value; if (!(a > 0)) return toast("اكتب المبلغ");
+  const a = safeAmount($("#mx").value); if (!(a > 0)) return toast("اكتب مبلغًا صحيحًا أكبر من صفر");
   await api("salary_records", "POST", "", {worker_id: id, month: "x" + Date.now(), qty: 1, amount: a, paid: true, paid_at: ($("#md").value || today()) + "T12:00:00"});
   await refresh(); openWorker(id); toast("تم الصرف");
 }
@@ -461,7 +481,18 @@ async function changePass() {
   } catch { return toast("تعذر الاتصال"); }
   ["#p0", "#p1", "#p2"].forEach(s => $(s).value = ""); toast("تم تغيير كلمة السر");
 }
+// استعادة الجلسة بعد تحديث الصفحة، مع إرجاع المستخدم للدخول عند انتهاء صلاحيتها.
+(async function boot() {
+  restoreSession();
+  if (!session) return;
+  try { await start(); } catch { logout(); }
+})();
 
+
+// تفعيل التثبيت والعمل كتطبيق مستقل عند النشر على HTTPS أو localhost.
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+}
 </script>
 </body>
 </html>
